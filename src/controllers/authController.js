@@ -1,0 +1,179 @@
+const jwt = require('jsonwebtoken')
+const bcryptjs = require('bcryptjs')
+const conexion = require('../database/db')
+const {promisify} = require ('util')
+
+
+//Promesas para Registrar usuario
+
+
+exports.register = async(req, res)=>{
+    try {
+        const name = req.body.name
+        const email = req.body.email
+        const password = req.body.password
+        //console.log(name + "-" + email + "-" + password)
+        let passHash = await bcryptjs.hash(password,8)
+        //console.log(passHash)
+        conexion.query('INSERT INTO users SET ?',{email:email, name:name, password:passHash},(error, results)=>{
+            if(error){console(error)}
+            res.redirect('/')
+        })
+    } catch (error) {
+        console.log(error)
+    }
+}
+
+exports.login = async(req,res)=>{
+    try {
+        const email = req.body.email
+        const password = req.body.password
+        //console.log(email + "-" + password)
+
+        if(!email || !password){
+            res.render('login',{
+                alert:true,
+                alertTitle: "Advertencia",
+                alertMessage: "Ingrese un email y password",
+                alertIcon: 'info',
+                showConfirmButton: true,
+                timer: false,
+                ruta: 'login'
+            })
+        }else{
+            conexion.query('SELECT * FROM users WHERE email = ?', [email], async(error,results)=>{
+                if(results.length == 0 || ! (await bcryptjs.compare(password,results[0].password)) ){
+                    res.render('login',{
+                        alert: true,
+                        alertTitle: "Error",
+                        alertMessage: "Usuario y/o Password incorrectos",
+                        alertIcon: 'error',
+                        showConfirmButton: true,
+                        timer: false,
+                        ruta: 'login'
+                    })
+                }else{
+                    //Login Correcto
+                    const id = results[0].id
+                    const token = jwt.sign({id:id},process.env.JWT_SECRETO,{
+                        expiresIn: process.env.JWT_TIEMPO_EXPIRA
+                    })
+                    //Tocken sin fecha de expiracion
+                    //const token = jwt.sign({id:id},process.env.JWT_SECRETO)
+                    //console.log("TOKEN: " + token + "Para el usuaio: " + email)
+                    
+                    //Cookies
+                    const cookiesOptions={
+                        expires: new Date(Date.now()+process.env.JWT_COOKIE_EXPIRES * 24 * 60 * 60 * 1000),
+                        httpOnly: true
+                    }
+                    res.cookie('jwt',token,cookiesOptions)
+                    res.render('login',{
+                        alert:true,
+                        alertTitle: "Conexion exitosa",
+                        alertMessage: "¡LOGIN CORRECTO!",
+                        alertIcon: 'success',
+                        showConfirmButton: false,
+                        timer: 800,
+                        ruta: ''
+                    })
+                }
+            })
+        }
+    } catch (error) {
+        console.log(error)
+    }
+}
+
+exports.isauthenticated = async (req,res,next)=>{
+    if(req.cookies.jwt){
+        try {
+            const decodificada = await promisify(jwt.verify)(req.cookies.jwt, process.env.JWT_SECRETO)
+            conexion.query('SELECT * FROM users WHERE id = ?',[decodificada.id],(error,results)=>{
+                if(!results){
+                return next()
+                }
+                req.email = results[0]
+                return next()
+            })
+        } catch (error) {
+            console.log(error)
+            return next()
+        }
+    }else{
+        res.redirect('/login')
+    }
+}
+
+exports.logout = (req, res)=>{
+    res.clearCookie('jwt')
+    return res.redirect('/')
+}
+
+//===================== CRUD de Usuarios =====================
+
+//Listar todos los usuarios
+exports.listUsers = (req, res) => {
+    conexion.query('SELECT id, name, email FROM users ORDER BY id ASC', (error, results) => {
+        if(error){
+            console.log(error)
+            return res.redirect('/')
+        }
+        res.render('users', { email: req.email, users: results })
+    })
+}
+
+//Mostrar el formulario de edicion con los datos actuales del usuario
+exports.editUserForm = (req, res) => {
+    const id = req.params.id
+    conexion.query('SELECT id, name, email FROM users WHERE id = ?', [id], (error, results) => {
+        if(error || results.length === 0){
+            console.log(error)
+            return res.redirect('/users')
+        }
+        res.render('edit-user', { email: req.email, usuario: results[0] })
+    })
+}
+
+//Actualizar nombre, correo y (opcionalmente) password de un usuario
+exports.updateUser = async (req, res) => {
+    const id = req.params.id
+    const { name, email, password } = req.body
+
+    try {
+        if(password && password.trim() !== ''){
+            //El usuario si quiere cambiar tambien la contraseña
+            const passHash = await bcryptjs.hash(password, 8)
+            conexion.query(
+                'UPDATE users SET name = ?, email = ?, password = ? WHERE id = ?',
+                [name, email, passHash, id],
+                (error) => {
+                    if(error){ console.log(error) }
+                    res.redirect('/users')
+                }
+            )
+        }else{
+            //Dejo el password como estaba, solo actualizo nombre y correo
+            conexion.query(
+                'UPDATE users SET name = ?, email = ? WHERE id = ?',
+                [name, email, id],
+                (error) => {
+                    if(error){ console.log(error) }
+                    res.redirect('/users')
+                }
+            )
+        }
+    } catch (error) {
+        console.log(error)
+        res.redirect('/users')
+    }
+}
+
+//Eliminar un usuario
+exports.deleteUser = (req, res) => {
+    const id = req.params.id
+    conexion.query('DELETE FROM users WHERE id = ?', [id], (error) => {
+        if(error){ console.log(error) }
+        res.redirect('/users')
+    })
+}

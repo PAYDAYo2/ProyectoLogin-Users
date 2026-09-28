@@ -1,0 +1,32 @@
+version: '3.8'
+services:
+  mysql:
+    image: mysql:9.0
+    container_name: mysql90
+    environment:
+      - MYSQL_ROOT_PASSWORD=clave
+      - MYSQL_DATABASE=ug
+    ports:
+      - "3307:3306"
+  app:
+    build: .
+    container_name: nodejs_app
+    volumes:
+      - .:/usr/src/app
+      - /usr/src/app/node_modules
+    command: npx nodemon src/app.js
+    depends_on:
+      - mysql
+    links:
+      - mysql
+    environment:
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=root
+      - DB_PASSWORD=clave
+      - DB_DATABASE=ug
+      - JWT_SECRETO=clave_secreta
+      - JWT_TIEMPO_EXPIRA=7d
+      - JWT_COOKIE_EXPIRES=90
+    ports:
+      - "3000:3000"
